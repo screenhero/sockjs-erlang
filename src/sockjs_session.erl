@@ -26,8 +26,11 @@
                   state,
                   handle                       :: handle()
                  }).
--define(ETS, sockjs_table).
 
+-record(sockjs_session, {id             :: session(),
+                         pid            :: pid()}).
+
+-define(ETS, sockjs_session).
 
 -type(session_or_undefined() :: session() | undefined).
 -type(session_or_pid() :: session() | pid()).
@@ -36,8 +39,11 @@
 
 -spec init() -> ok.
 init() ->
-    _ = ets:new(?ETS, [public, named_table]),
-    ok.
+    mnesia:create_schema([node()]),
+    ok = mnesia:start(),
+    mnesia:create_table(?ETS, [{attributes, record_info(fields, sockjs_session)}]),
+    ok = mnesia:wait_for_tables([?ETS], 20000),
+    mnesia:add_table_copy(?ETS, node(), ram_copies).
 
 -spec start_link(session_or_undefined(), service(), info()) -> {ok, pid()}.
 start_link(SessionId, Service, Info) ->
@@ -45,11 +51,11 @@ start_link(SessionId, Service, Info) ->
 
 -spec maybe_create(session_or_undefined(), service(), info()) -> pid().
 maybe_create(SessionId, Service, Info) ->
-    case ets:lookup(?ETS, SessionId) of
+    case mnesia:dirty_read({?ETS, SessionId}) of
         []          -> {ok, SPid} = sockjs_session_sup:start_child(
                                       SessionId, Service, Info),
                        SPid;
-        [{_, SPid}] -> SPid
+        [{sockjs_session, _, SPid}] -> SPid
     end.
 
 
@@ -100,9 +106,9 @@ cancel_timer_safe(Timer, Atom) ->
     end.
 
 spid(SessionId) ->
-    case ets:lookup(?ETS, SessionId) of
+    case mnesia:dirty_read({?ETS, SessionId}) of
         []          -> throw(no_session);
-        [{_, SPid}] -> SPid
+        [{sockjs_session, _, SPid}] -> SPid
     end.
 
 %% Mark a process as waiting for data.
@@ -175,6 +181,9 @@ emit(What, State = #session{callback = Callback,
 
 %% --------------------------------------------------------------------------
 
+update_session(SessionId, Pid) ->
+    mnesia:write(#sockjs_session{id=SessionId, pid=Pid}).
+
 -spec init({session_or_undefined(), service(), info()}) -> {ok, #session{}}.
 init({SessionId, #service{callback         = Callback,
                           state            = UserState,
@@ -182,7 +191,7 @@ init({SessionId, #service{callback         = Callback,
                           heartbeat_delay  = HeartbeatDelay}, Info}) ->
     case SessionId of
         undefined -> ok;
-        _Else     -> ets:insert(?ETS, {SessionId, self()})
+        _Else     -> mnesia:sync_dirty(fun update_session/2, [SessionId, self()])
     end,
     process_flag(trap_exit, true),
     TRef = erlang:send_after(DisconnectDelay, self(), session_timeout),
@@ -295,9 +304,11 @@ handle_info(heartbeat_triggered, State = #session{response_pid = RPid}) when RPi
 handle_info(Info, State) ->
     {stop, {odd_info, Info}, State}.
 
+delete_session(SessionId) ->
+    mnesia:delete({?ETS, SessionId}).
 
 terminate(_, State = #session{id = SessionId}) ->
-    ets:delete(?ETS, SessionId),
+    mnesia:async_dirty(fun delete_session/1, [SessionId]),
     _ = emit(closed, State),
     ok.
 
