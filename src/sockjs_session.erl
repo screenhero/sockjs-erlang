@@ -43,7 +43,8 @@ init() ->
     ok = mnesia:start(),
     mnesia:create_table(?ETS, [{attributes, record_info(fields, sockjs_session)}]),
     ok = mnesia:wait_for_tables([?ETS], 20000),
-    mnesia:add_table_copy(?ETS, node(), ram_copies).
+    mnesia:add_table_copy(?ETS, node(), ram_copies),
+    ok.
 
 -spec start_link(session_or_undefined(), service(), info()) -> {ok, pid()}.
 start_link(SessionId, Service, Info) ->
