@@ -195,6 +195,8 @@ reply_loop(Req, SessionId, ResponseLimit, Fmt, Service) ->
                               %% ie: {active, once}.
                               {tcp_closed, _} ->
                                   Req0;
+                              {ssl_closed, _} ->
+                                  Req0;
                               %% In Cowboy we may in theory get real
                               %% http requests, this is bad.
                               {tcp, _S, Data} ->
