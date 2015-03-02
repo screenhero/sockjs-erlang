@@ -62,10 +62,13 @@ maybe_create(SessionId, Service, Info) ->
 
 -spec received(list(iodata()), session_or_pid()) -> ok.
 received(Messages, SessionPid) when is_pid(SessionPid) ->
-    case gen_server:call(SessionPid, {received, Messages}, infinity) of
+    case catch gen_server:call(SessionPid, {received, Messages}, 5000) of
         ok    -> ok;
-        error -> throw(no_session)
+        error -> throw(no_session);
                  %% TODO: should we respond 404 when session is closed?
+        {'EXIT', {timeout, _Detail}} -> lager:error("JDDEBUG: Exited for: ~p", [erlang:get_stacktrace()]),
+                                        received(Messages, SessionPid);
+        {'EXIT', Reason} -> exit(Reason)
     end;
 received(Messages, SessionId) ->
     received(Messages, spid(SessionId)).
@@ -92,7 +95,12 @@ reply(Session) ->
 -spec reply(session_or_pid(), boolean()) ->
                    wait | session_in_use | {ok | close, frame()}.
 reply(SessionPid, Multiple) when is_pid(SessionPid) ->
-    gen_server:call(SessionPid, {reply, self(), Multiple}, infinity);
+    case catch gen_server:call(SessionPid, {reply, self(), Multiple}, 5000) of
+      {'EXIT', {timeout, _Detail}} -> lager:error("JDDEBUG: Timed out: ~p", [erlang:get_stacktrace()]),
+                                      reply(SessionPid, Multiple);
+      {'EXIT', Reason} -> exit(Reason);
+      Other -> Other
+    end;
 reply(SessionId, Multiple) ->
     reply(spid(SessionId), Multiple).
 
