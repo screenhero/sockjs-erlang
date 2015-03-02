@@ -193,13 +193,11 @@ reply_loop(Req, SessionId, ResponseLimit, Fmt, Service) ->
                               %% In Cowboy we need to capture async
                               %% messages from the tcp connection -
                               %% ie: {active, once}.
-                              {tcp_closed, _} ->
-                                  Req0;
-                              {ssl_closed, _} ->
+                              {X,_} when X =:= tcp_closed; X =:= ssl_closed ->
                                   Req0;
                               %% In Cowboy we may in theory get real
                               %% http requests, this is bad.
-                              {tcp, _S, Data} ->
+                              {X, _S, Data} when X =:= tcp; X =:= ssl ->
                                   error_logger:error_msg(
                                     "Received unexpected data on a "
                                     "long-polling http connection: ~p. "
